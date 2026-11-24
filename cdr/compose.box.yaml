@@ -1,0 +1,18 @@
+# Workaround for the gVisor dev box only: Docker's embedded DNS (127.0.0.11)
+# doesn't answer there, so service names don't resolve. Pin Postgres to a
+# fixed address and put it in ehrbase's /etc/hosts. Enabled per machine via
+# COMPOSE_FILE=compose.yaml:compose.box.yaml in .env; not needed elsewhere.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.31.240.0/24
+
+services:
+  postgres:
+    networks:
+      default:
+        ipv4_address: 172.31.240.10
+  ehrbase:
+    extra_hosts:
+      - "postgres:172.31.240.10"

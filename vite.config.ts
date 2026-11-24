@@ -10,6 +10,11 @@ const ehrbaseUrl = process.env.EHRBASE_URL ?? 'http://localhost:8081'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
+    // Binds 127.0.0.1 by default; `npm run dev:box` binds 0.0.0.0 for the
+    // dev box, which serves it at https://ehrbase-explorer.dev.lokalhost.one.
+    port: 9001,
+    strictPort: true,
+    allowedHosts: ['ehrbase-explorer.dev.lokalhost.one'],
     proxy: {
       '/ehrbase': { target: ehrbaseUrl, changeOrigin: true },
     },

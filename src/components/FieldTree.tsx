@@ -1,5 +1,9 @@
+import { ChevronRight, Repeat } from 'lucide-react'
 import { useState } from 'react'
 import type { FieldNode } from '../lib/fieldTree'
+import { cn } from '../lib/utils'
+import { Badge } from './ui/badge'
+import { Checkbox } from './ui/checkbox'
 
 interface TreeProps {
   nodes: FieldNode[]
@@ -8,44 +12,60 @@ interface TreeProps {
   expandAll: boolean
 }
 
+function RepeatsBadge() {
+  return (
+    <Badge variant="warning" title="Can occur more than once per composition">
+      <Repeat />
+      repeats
+    </Badge>
+  )
+}
+
 function TreeNode({ node, depth, ...props }: TreeProps & { node: FieldNode; depth: number }) {
   const [open, setOpen] = useState(false)
   const expanded = open || props.expandAll
   const hasChildren = node.children.length > 0
+  const id = `field-${node.key}`
 
   return (
     <li>
-      <div className="flex items-center gap-1 rounded py-0.5 pr-1 hover:bg-gray-50" style={{ paddingLeft: depth * 14 }}>
+      <div
+        className="flex min-h-8 items-center gap-1.5 rounded-md pr-2 hover:bg-muted/70"
+        style={{ paddingLeft: depth * 18 + 4 }}
+      >
         {hasChildren ? (
           <button
             type="button"
             onClick={() => setOpen(!expanded)}
-            className="w-4 shrink-0 text-gray-400"
+            className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
             aria-label={expanded ? 'Collapse' : 'Expand'}
+            aria-expanded={expanded}
           >
-            {expanded ? '▾' : '▸'}
+            <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
           </button>
         ) : (
-          <span className="w-4 shrink-0" />
+          <span className="w-5 shrink-0" />
         )}
 
         {node.selectable ? (
-          <label className="flex min-w-0 cursor-pointer items-center gap-1.5">
-            <input type="checkbox" checked={props.selected.has(node.key)} onChange={() => props.onToggle(node)} />
-            <span className="truncate">{node.label}</span>
-            <span className="shrink-0 text-xs text-gray-400">{node.rmType.replace(/^DV_/, '').toLowerCase()}</span>
-          </label>
+          <>
+            <Checkbox id={id} checked={props.selected.has(node.key)} onCheckedChange={() => props.onToggle(node)} />
+            <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer truncate pl-1">
+              {node.label}
+            </label>
+            <Badge variant="secondary">{node.rmType.replace(/^DV_/, '').toLowerCase()}</Badge>
+          </>
         ) : (
-          <button type="button" onClick={() => setOpen(!expanded)} className="truncate text-left">
+          <button
+            type="button"
+            onClick={() => setOpen(!expanded)}
+            className={cn('min-w-0 flex-1 cursor-pointer truncate text-left font-medium', depth === 0 && 'font-semibold')}
+          >
             {node.label}
           </button>
         )}
 
-        {node.repeatable && (
-          <span className="shrink-0 text-xs text-amber-600" title="Can occur more than once per composition">
-            ↻
-          </span>
-        )}
+        {node.repeatable && <RepeatsBadge />}
       </div>
 
       {hasChildren && expanded && (
@@ -60,7 +80,7 @@ function TreeNode({ node, depth, ...props }: TreeProps & { node: FieldNode; dept
 }
 
 export function FieldTree(props: TreeProps) {
-  if (props.nodes.length === 0) return <p className="p-1 text-sm text-gray-500">No matching fields.</p>
+  if (props.nodes.length === 0) return <p className="p-2 text-sm text-muted-foreground">No matching fields.</p>
   return (
     <ul className="text-sm">
       {props.nodes.map((node) => (

@@ -1,13 +1,21 @@
+import { CalendarDays, User } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useComposition, useWebTemplate } from '../api/browse'
+import { CopyButton } from '../components/CopyButton'
+import { PageHeader } from '../components/PageHeader'
 import { QueryStatus } from '../components/QueryStatus'
+import { Badge } from '../components/ui/badge'
+import { Card } from '../components/ui/card'
+import { Segmented } from '../components/ui/segmented'
 import { toSections } from '../lib/flat'
 import { formatDateTime } from '../lib/format'
+
+type Mode = 'formatted' | 'raw'
 
 export function CompositionView({ ehrId, uid }: { ehrId: string; uid: string }) {
   const composition = useComposition(ehrId, uid)
   const webTemplate = useWebTemplate(composition.data?.templateId)
-  const [showRaw, setShowRaw] = useState(false)
+  const [mode, setMode] = useState<Mode>('formatted')
 
   const sections = useMemo(
     () => composition.data && webTemplate.data && toSections(composition.data.flat, webTemplate.data.tree),
@@ -18,48 +26,69 @@ export function CompositionView({ ehrId, uid }: { ehrId: string; uid: string }) 
   if (!c) return <QueryStatus isPending={composition.isPending} error={composition.error} />
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold">{c.name}</h2>
-          <p className="text-sm text-gray-600">
-            {formatDateTime(c.startTime)}
-            {c.composer && ` · ${c.composer}`} · {c.templateId}
-          </p>
-          <p className="font-mono text-xs text-gray-500">{c.uid}</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowRaw(!showRaw)}
-          className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50"
-        >
-          {showRaw ? 'Show formatted' : 'Show raw FLAT'}
-        </button>
-      </header>
+    <div className="space-y-7">
+      <PageHeader
+        title={c.name}
+        description={
+          <div className="mt-2 space-y-2">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <span className="inline-flex items-center gap-1.5">
+                <CalendarDays className="size-3.5" />
+                {formatDateTime(c.startTime)}
+              </span>
+              {c.composer && (
+                <span className="inline-flex items-center gap-1.5">
+                  <User className="size-3.5" />
+                  {c.composer}
+                </span>
+              )}
+              <Badge variant="outline">{c.templateId}</Badge>
+            </div>
+            <div className="flex items-center gap-1 font-mono text-xs">
+              <span className="truncate">{c.uid}</span>
+              <CopyButton value={c.uid} label="Copy composition UID" />
+            </div>
+          </div>
+        }
+        actions={
+          <Segmented<Mode>
+            label="View"
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: 'formatted', label: 'Formatted' },
+              { value: 'raw', label: 'Raw FLAT' },
+            ]}
+          />
+        }
+      />
 
-      {showRaw ? (
-        <pre className="overflow-auto rounded bg-gray-50 p-3 text-xs">{JSON.stringify(c.flat, null, 2)}</pre>
+      {mode === 'raw' ? (
+        <Card>
+          <pre className="overflow-auto p-5 font-mono text-xs leading-relaxed">{JSON.stringify(c.flat, null, 2)}</pre>
+        </Card>
       ) : !sections ? (
         <QueryStatus isPending={webTemplate.isPending} error={webTemplate.error} />
       ) : (
         sections.map((section) => (
-          <section key={section.key}>
-            <h3 className="mb-2 border-b border-gray-200 pb-1 text-sm font-semibold tracking-wide text-gray-500 uppercase">
-              {section.label}
-            </h3>
-            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(18rem,1fr))]">
+          <section key={section.key} className="space-y-3">
+            <div className="flex items-center gap-3">
+              <h2 className="text-[15px] font-semibold">{section.label}</h2>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(18rem,1fr))]">
               {section.entries.map((entry) => (
-                <article key={entry.key} className="rounded border border-gray-200 p-3">
-                  <h4 className="mb-1 font-medium">{entry.label}</h4>
-                  <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-sm">
+                <Card key={entry.key} className="self-start">
+                  <h3 className="border-b px-4 py-3 text-sm font-semibold">{entry.label}</h3>
+                  <dl className="divide-y divide-muted px-4 py-1">
                     {entry.fields.map((field) => (
-                      <div key={field.key} className="contents">
-                        <dt className="text-gray-500">{field.label}</dt>
-                        <dd className="break-words">{field.value}</dd>
+                      <div key={field.key} className="flex items-baseline justify-between gap-4 py-2">
+                        <dt className="text-[13px] text-muted-foreground">{field.label}</dt>
+                        <dd className="text-right text-sm font-medium break-words tabular-nums">{field.value}</dd>
                       </div>
                     ))}
                   </dl>
-                </article>
+                </Card>
               ))}
             </div>
           </section>

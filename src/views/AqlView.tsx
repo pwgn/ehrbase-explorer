@@ -1,26 +1,28 @@
 import { sql } from '@codemirror/lang-sql'
 import { useMutation } from '@tanstack/react-query'
 import CodeMirror, { keymap, Prec } from '@uiw/react-codemirror'
+import { LoaderCircle, Play, SquareTerminal } from 'lucide-react'
 import { useMemo } from 'react'
 import { runAql } from '../api/ehrbase'
+import { EmptyState } from '../components/EmptyState'
+import { ErrorAlert } from '../components/QueryStatus'
 import { ResultTable } from '../components/ResultTable'
-import { TemplateList } from '../components/TemplateList'
-import { aqlString } from '../lib/fieldTree'
+import { Badge } from '../components/ui/badge'
+import { Button } from '../components/ui/button'
+import { Card, CardHeader, CardTitle } from '../components/ui/card'
+import { useTheme } from '../lib/theme'
 
-export const DEFAULT_QUERY = `SELECT e/ehr_id/value, e/time_created/value
-FROM EHR e
-LIMIT 20`
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
 
-function compositionsQuery(templateId: string) {
-  return `SELECT e/ehr_id/value, c/uid/value, c/context/start_time/value
-FROM EHR e CONTAINS COMPOSITION c
-WHERE c/archetype_details/template_id/value = ${aqlString(templateId)}
-ORDER BY c/context/start_time/value DESC
-LIMIT 50`
+function Kbd({ children }: { children: string }) {
+  return (
+    <kbd className="rounded border bg-background px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">{children}</kbd>
+  )
 }
 
-// The query lives in App so other views can open a query here.
+// The query lives in App so other views (and the sidebar template list) can open a query here.
 export function AqlView({ query, setQuery }: { query: string; setQuery: (query: string) => void }) {
+  const theme = useTheme()
   const aql = useMutation({ mutationFn: runAql })
   const { mutate } = aql
   // Takes precedence over CodeMirror's own Mod-Enter (insert blank line).
@@ -33,40 +35,47 @@ export function AqlView({ query, setQuery }: { query: string; setQuery: (query: 
   )
 
   return (
-    <div className="flex h-full">
-      <aside className="w-64 shrink-0 overflow-auto border-r border-gray-200 p-4">
-        <TemplateList onSelect={(id) => setQuery(compositionsQuery(id))} />
-      </aside>
+    <div className="flex flex-col gap-5 px-8 py-6">
+      <Card>
+        <CodeMirror
+          value={query}
+          onChange={setQuery}
+          extensions={extensions}
+          theme={theme}
+          height="200px"
+          className="text-[13px] [&_.cm-activeLine]:bg-muted/50! [&_.cm-activeLineGutter]:bg-muted! [&_.cm-editor]:bg-transparent! [&_.cm-gutters]:border-r! [&_.cm-gutters]:border-border! [&_.cm-gutters]:bg-background! [&_.cm-scroller]:font-mono!"
+        />
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-2.5">
+          <span className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground">
+            Run with <Kbd>{isMac ? '⌘' : 'Ctrl'}</Kbd>
+            <Kbd>Enter</Kbd>
+          </span>
+          <Button onClick={() => aql.mutate(query)} disabled={aql.isPending}>
+            {aql.isPending ? <LoaderCircle className="animate-spin" /> : <Play className="fill-current" />}
+            {aql.isPending ? 'Running…' : 'Run query'}
+          </Button>
+        </div>
+      </Card>
 
-      <main className="flex min-w-0 flex-1 flex-col gap-3 p-4">
-        <div className="overflow-hidden rounded border border-gray-200">
-          <CodeMirror
-            value={query}
-            onChange={setQuery}
-            extensions={extensions}
-            height="180px"
+      {aql.error && <ErrorAlert error={aql.error} title="Query failed" />}
+
+      <Card>
+        <CardHeader className="py-3">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-sm">Results</CardTitle>
+            {aql.data && <Badge>{aql.data.rows.length} rows</Badge>}
+          </div>
+        </CardHeader>
+        {aql.data ? (
+          <ResultTable result={aql.data} />
+        ) : (
+          <EmptyState
+            icon={SquareTerminal}
+            title="No results yet"
+            description="Write a query and run it, or pick a template in the sidebar for a starter query."
           />
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => aql.mutate(query)}
-            disabled={aql.isPending}
-            className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {aql.isPending ? 'Running…' : 'Run'}
-          </button>
-          <span className="text-xs text-gray-500">Ctrl+Enter</span>
-          {aql.data && <span className="text-sm text-gray-600">{aql.data.rows.length} rows</span>}
-        </div>
-
-        {aql.error && (
-          <pre className="rounded bg-red-50 p-3 text-xs whitespace-pre-wrap text-red-700">{aql.error.message}</pre>
         )}
-
-        <div className="min-h-0 flex-1 overflow-auto">{aql.data && <ResultTable result={aql.data} />}</div>
-      </main>
+      </Card>
     </div>
   )
 }

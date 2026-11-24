@@ -3,11 +3,12 @@
 //
 //   #/                                      overview
 //   #/patients                              all patients
+//   #/templates                             templates
 //   #/templates/<id>/patients               patients with a composition of <id>
 //   #/templates/<id>/fields?f=<key>&f=…     field explorer with selected fields
 //   #/ehrs/<ehrId>?template=<id>            patient
 //   #/ehrs/<ehrId>/compositions/<uid>?…     composition
-//   #/aql?q=<query>                         AQL tab
+//   #/aql?q=<query>                         AQL editor
 import { useCallback, useEffect, useState } from 'react'
 import type { Location } from '../views/location'
 
@@ -40,6 +41,7 @@ export function parseHash(hash: string): Route {
 
   if (parts[0] === 'aql' && parts.length === 1) return { tab: 'aql', query: params.get('q') ?? undefined }
   if (parts[0] === 'patients' && parts.length === 1) return browse({ view: 'patients' })
+  if (parts[0] === 'templates' && parts.length === 1) return browse({ view: 'templates' })
   if (parts[0] === 'templates' && parts.length === 3) {
     if (parts[2] === 'patients') return browse({ view: 'patients', templateId: parts[1] })
     if (parts[2] === 'fields') return browse({ view: 'fields', templateId: parts[1], fields: params.getAll('f') })
@@ -64,6 +66,8 @@ export function toHash(route: Route): string {
   switch (loc.view) {
     case 'overview':
       return '#/'
+    case 'templates':
+      return path('templates')
     case 'patients':
       return loc.templateId ? path('templates', loc.templateId, 'patients') : path('patients')
     case 'fields':

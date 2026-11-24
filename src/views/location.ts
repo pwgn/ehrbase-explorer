@@ -4,6 +4,7 @@ import type { NavigateOptions } from '../lib/route'
 // remembers which template the user drilled down from, for the breadcrumbs.
 export type Location =
   | { view: 'overview' }
+  | { view: 'templates' }
   | { view: 'patients'; templateId?: string }
   | { view: 'fields'; templateId: string; fields: string[] } // selected field keys
   | { view: 'patient'; ehrId: string; templateId?: string }
