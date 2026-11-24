@@ -17,7 +17,8 @@ function formatCell(value: unknown) {
 
 // UUIDs, version uids and object/JSON values read better in monospace.
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-|::/i
-const isCode = (value: unknown) => typeof value === 'object' || (typeof value === 'string' && ID_PATTERN.test(value))
+const isCode = (value: unknown) =>
+  (value !== null && typeof value === 'object') || (typeof value === 'string' && ID_PATTERN.test(value))
 
 export function ResultTable({ result }: { result: AqlResultSet }) {
   // AQL result columns are only known at runtime, so build them per result.

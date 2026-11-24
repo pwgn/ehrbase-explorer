@@ -143,12 +143,11 @@ problem_list() { # EHR_ID TIME COMPOSER FACILITY "name|onset|description"...
   post_flat "$ehr" "$PROBLEMS" "$body"
 }
 
-lab_report() { # EHR_ID TIME COMPOSER FACILITY TEST VALUE UNIT CONCLUSION
+lab_report() { # EHR_ID TIME COMPOSER FACILITY TEST VALUE UNIT CONCLUSION REPORT_ID
   local p=laboratory_test_report/laboratory_test:0
-  rnd 100000 999999
   post_flat "$1" "$LAB" "$(ctx "$2" "$3" "$4" laboratory_test_report | jq \
     --arg p "$p" --arg t "$2" --arg test "$5" --argjson v "$6" --arg u "$7" --arg concl "$8" \
-    --arg rid "LAB-$R" '. + {
+    --arg rid "LAB-$9" '. + {
       "laboratory_test_report/context/report_id": $rid,
       ($p + "/test_name"): $test,
       ($p + "/time"): $t,
@@ -224,6 +223,7 @@ for n in $(seq 1 "$PATIENTS"); do
   pick "${LAB_POOL[@]}"; IFS='|' read -r test unit lo hi concl <<<"$P"
   rnd "$lo" "$hi"; lab_value=$R
   rnd 1 120; iso "$R"; lab_time=$T
+  rnd 100000 999999; lab_id=$R
 
   found=$(api GET "/ehr?subject_id=$(uri "$subject")&subject_namespace=$(uri "$NAMESPACE")" \
     -H 'Accept: application/json' 2>/dev/null | jq -r '.ehr_id.value // empty' || true)
@@ -253,7 +253,7 @@ for n in $(seq 1 "$PATIENTS"); do
   problem_list "$ehr" "$problems_time" "$clinician" "$facility" "${probs[@]}"
   compositions=$((compositions + 1))
   if ((has_lab)); then
-    lab_report "$ehr" "$lab_time" "$clinician" "$facility" "$test" "$lab_value" "$unit" "$concl"
+    lab_report "$ehr" "$lab_time" "$clinician" "$facility" "$test" "$lab_value" "$unit" "$concl" "$lab_id"
     compositions=$((compositions + 1))
   fi
 

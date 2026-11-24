@@ -7,6 +7,7 @@ import {
   getRevisionHistory,
   getWebTemplate,
   listTemplates,
+  RequestError,
   runAql,
 } from './ehrbase'
 
@@ -141,7 +142,14 @@ ORDER BY c/context/start_time/value DESC`,
 
 // Read from the composition itself rather than AQL, which only sees latest versions.
 async function getComposition(ehrId: string, uid: string) {
-  const [c, flat] = await Promise.all([getCanonicalComposition(ehrId, uid), getFlatComposition(ehrId, uid)])
+  const [c, flat] = await Promise.all([getCanonicalComposition(ehrId, uid), getFlatComposition(ehrId, uid)]).catch(
+    (error: unknown) => {
+      // EHRbase answers 204 for a deleted composition (or its deleting version).
+      if (error instanceof RequestError && error.status === 204) throw new RequestError(`Composition ${uid} has been deleted.`, 204)
+      if (error instanceof RequestError && error.status === 404) throw new RequestError(`Composition ${uid} not found.`, 404)
+      throw error
+    },
+  )
   return {
     uid: c.uid.value,
     name: c.name.value,

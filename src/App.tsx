@@ -56,7 +56,8 @@ function ThemeToggle() {
 function App() {
   const [route, navigate] = useHashRoute()
 
-  // Each tab remembers its last state from the URL, so switching tabs returns there.
+  // Each tab remembers its last state from the URL. Coming back from the AQL
+  // editor, the sidebar item of the section you left returns you to where you were.
   // (Adjusting state during render, not in an effect, avoids an extra render pass.)
   const [lastBrowse, setLastBrowse] = useState<Location>({ view: 'overview' })
   const [aqlQuery, setAqlQuery] = useState(DEFAULT_QUERY)
@@ -67,6 +68,8 @@ function App() {
   const openInAql = (query: string) => navigate({ tab: 'aql', query })
   const editAql = (query: string) => navigate({ tab: 'aql', query }, { replace: true })
   const browse = (location: Location) => navigate({ tab: 'browse', location })
+  const browseSection = (target: Section, root: Location) =>
+    browse(route.tab === 'aql' && sectionOf(lastBrowse) === target ? lastBrowse : root)
   const section: Section = route.tab === 'aql' ? 'aql' : sectionOf(route.location)
 
   return (
@@ -84,9 +87,9 @@ function App() {
 
         <nav aria-label="Main" className="flex flex-col gap-0.5">
           <h2 className="px-2.5 pb-1 text-xs font-medium text-muted-foreground">Browse</h2>
-          <NavItem icon={LayoutDashboard} label="Overview" active={section === 'overview'} onClick={() => browse({ view: 'overview' })} />
-          <NavItem icon={Users} label="Patients" active={section === 'patients'} onClick={() => browse({ view: 'patients' })} />
-          <NavItem icon={Layers} label="Templates" active={section === 'templates'} onClick={() => browse({ view: 'templates' })} />
+          <NavItem icon={LayoutDashboard} label="Overview" active={section === 'overview'} onClick={() => browseSection('overview', { view: 'overview' })} />
+          <NavItem icon={Users} label="Patients" active={section === 'patients'} onClick={() => browseSection('patients', { view: 'patients' })} />
+          <NavItem icon={Layers} label="Templates" active={section === 'templates'} onClick={() => browseSection('templates', { view: 'templates' })} />
           <h2 className="px-2.5 pt-4 pb-1 text-xs font-medium text-muted-foreground">Query</h2>
           <NavItem
             icon={SquareTerminal}

@@ -1,4 +1,4 @@
-import { CalendarDays, History, User } from 'lucide-react'
+import { CalendarDays, History, Trash2, User } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useComposition, useCompositionVersions, useWebTemplate } from '../api/browse'
 import { CopyButton } from '../components/CopyButton'
@@ -39,7 +39,10 @@ export function CompositionView({
   const c = composition.data
   const index = c ? versions.findIndex((v) => v.uid === c.uid) : -1
   const current = versions[index]
-  const latest = versions[0]
+  const latest = versions[0] // newest version with content
+  // Counts include deleted versions; a deletion as the newest version means the record is gone.
+  const total = history.data?.[0]?.version ?? 0
+  const deletion = history.data?.[0]?.changeType === 'deleted' ? history.data[0] : undefined
   const previous = index >= 0 ? versions[index + 1] : undefined
   const previousComposition = useComposition(ehrId, previous?.uid)
 
@@ -101,7 +104,7 @@ export function CompositionView({
         actions={
           <>
             {versions.length > 1 && current && (
-              <VersionPicker versions={versions} current={current.uid} onSelect={openVersion} />
+              <VersionPicker versions={versions} total={total} deleted={!!deletion} current={current.uid} onSelect={openVersion} />
             )}
             <Segmented<Mode>
               label="View"
@@ -116,13 +119,31 @@ export function CompositionView({
         }
       />
 
-      {current && latest && current !== latest && (
+      {current && deletion && (
+        <Alert>
+          <Trash2 />
+          <AlertTitle>Deleted</AlertTitle>
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-muted-foreground">
+            <span>
+              This composition was deleted in version {deletion.version}, committed {formatDateTime(deletion.committed)}
+              {deletion.committer && ` by ${deletion.committer}`}. You're viewing version {current.version} of {total}.
+            </span>
+            {current !== latest && (
+              <Button variant="outline" size="sm" onClick={() => openVersion(latest.uid)}>
+                View last version
+              </Button>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {current && !deletion && current !== latest && (
         <Alert>
           <History />
           <AlertTitle>Older version</AlertTitle>
           <AlertDescription className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-muted-foreground">
             <span>
-              You're viewing version {current.version} of {latest.version}, committed {formatDateTime(current.committed)}
+              You're viewing version {current.version} of {total}, committed {formatDateTime(current.committed)}
               {current.committer && ` by ${current.committer}`}.
             </span>
             <Button variant="outline" size="sm" onClick={() => openVersion(latest.uid)}>

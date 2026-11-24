@@ -9,7 +9,11 @@ const current = (): Theme => (document.documentElement.classList.contains('dark'
 
 export function setTheme(theme: Theme) {
   document.documentElement.classList.toggle('dark', theme === 'dark')
-  localStorage.setItem('theme', theme)
+  try {
+    localStorage.setItem('theme', theme)
+  } catch {
+    // Storage blocked: the choice just isn't remembered.
+  }
   listeners.forEach((listener) => listener())
 }
 

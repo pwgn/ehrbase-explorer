@@ -19,6 +19,16 @@ export interface AqlResultSet {
   rows: unknown[][]
 }
 
+// A failed request with its HTTP status: 204 when EHRbase has nothing to
+// return (e.g. a deleted composition version).
+export class RequestError extends Error {
+  readonly status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
@@ -26,9 +36,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.text()
-    throw new Error(`${res.status} ${res.statusText}${body ? `: ${body}` : ''}`)
+    throw new RequestError(`${res.status} ${res.statusText}${body ? `: ${body}` : ''}`, res.status)
   }
-  return res.json() as Promise<T>
+  const body = await res.text()
+  if (!body) throw new RequestError(`${res.status} ${res.statusText || 'No Content'}`, res.status)
+  return JSON.parse(body) as T
 }
 
 export function listTemplates() {
