@@ -1,5 +1,6 @@
-// AQL-backed queries for the browse views. EHRbase's AQL has no GROUP BY,
-// so counts are aggregated client-side (fine at local-dev scale).
+// AQL-backed queries for the browse views. AQL has no GROUP BY, but EHRbase
+// groups aggregates (COUNT, MAX) by the other selected columns, so counts are
+// computed in the database rather than by fetching every composition.
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import {
   getCanonicalComposition,
@@ -61,56 +62,45 @@ function toComposition([uid, name, templateId, startTime, composer]: Composition
 }
 
 async function getOverview(): Promise<Overview> {
-  const [templates, ehrs, compositions] = await Promise.all([
+  const [templates, ehrCount, perTemplate] = await Promise.all([
     listTemplates(),
-    rows<[string]>('SELECT e/ehr_id/value FROM EHR e'),
-    rows<[string, string]>(
-      'SELECT e/ehr_id/value, c/archetype_details/template_id/value FROM EHR e CONTAINS COMPOSITION c',
+    rows<[number]>('SELECT COUNT(e/ehr_id/value) FROM EHR e'),
+    rows<[string, number, number]>(
+      `SELECT c/archetype_details/template_id/value, COUNT(c/uid/value), COUNT(DISTINCT e/ehr_id/value)
+FROM EHR e CONTAINS COMPOSITION c`,
     ),
   ])
 
-  const counts = new Map<string, { compositions: number; ehrs: Set<string> }>()
-  for (const [ehrId, templateId] of compositions) {
-    const entry = counts.get(templateId) ?? { compositions: 0, ehrs: new Set<string>() }
-    entry.compositions++
-    entry.ehrs.add(ehrId)
-    counts.set(templateId, entry)
-  }
+  const counts = new Map(perTemplate.map(([templateId, compositions, patients]) => [templateId, { compositions, patients }]))
 
   return {
-    patients: ehrs.length,
-    compositions: compositions.length,
+    patients: ehrCount[0]?.[0] ?? 0,
+    compositions: perTemplate.reduce((sum, [, n]) => sum + n, 0),
     templates: templates.map((t) => ({
       templateId: t.template_id,
       rootArchetype: t.archetype_id,
       uploaded: t.created_timestamp,
       compositions: counts.get(t.template_id)?.compositions ?? 0,
-      patients: counts.get(t.template_id)?.ehrs.size ?? 0,
+      patients: counts.get(t.template_id)?.patients ?? 0,
     })),
   }
 }
 
 // All EHRs, or only those with at least one composition of `templateId`.
 async function listPatients(templateId?: string): Promise<PatientSummary[]> {
-  const [ehrs, compositions] = await Promise.all([
+  // EHRbase groups by the non-aggregate columns: one row per EHR.
+  const statsQuery = `SELECT e/ehr_id/value, COUNT(c/uid/value), MAX(c/context/start_time/value)
+FROM EHR e CONTAINS COMPOSITION c`
+  const [ehrs, perEhr] = await Promise.all([
     rows<EhrRow>(`SELECT ${EHR_COLUMNS} FROM EHR e`),
     templateId
-      ? rows<[string, string]>(
-          `SELECT e/ehr_id/value, c/context/start_time/value FROM EHR e CONTAINS COMPOSITION c
-WHERE c/archetype_details/template_id/value = $template_id`,
-          { template_id: templateId },
-        )
-      : rows<[string, string]>('SELECT e/ehr_id/value, c/context/start_time/value FROM EHR e CONTAINS COMPOSITION c'),
+      ? rows<[string, number, string]>(`${statsQuery} WHERE c/archetype_details/template_id/value = $template_id`, {
+          template_id: templateId,
+        })
+      : rows<[string, number, string]>(statsQuery),
   ])
 
-  const stats = new Map<string, { count: number; latest: string }>()
-  for (const [ehrId, startTime] of compositions) {
-    const s = stats.get(ehrId)
-    stats.set(ehrId, {
-      count: (s?.count ?? 0) + 1,
-      latest: s && s.latest > startTime ? s.latest : startTime,
-    })
-  }
+  const stats = new Map(perEhr.map(([ehrId, count, latest]) => [ehrId, { count, latest }]))
 
   return ehrs
     .filter(([ehrId]) => !templateId || stats.has(ehrId))
