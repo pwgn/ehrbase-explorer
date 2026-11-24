@@ -1,13 +1,14 @@
 import { useRef } from 'react'
-import { COMPOSITIONS_PAGE_SIZE, type CompositionSummary, usePatient, usePatientCompositions } from '../api/browse'
+import { PAGE_SIZE, type CompositionSummary, usePatient, usePatientCompositions } from '../api/browse'
 import { CopyButton } from '../components/CopyButton'
 import { DataTable } from '../components/DataTable'
 import { PageHeader } from '../components/PageHeader'
-import { Pagination } from '../components/Pagination'
+import { Pagination, PastLastPage } from '../components/Pagination'
 import { QueryStatus } from '../components/QueryStatus'
 import { Badge } from '../components/ui/badge'
 import { Card, CardHeader, CardTitle } from '../components/ui/card'
 import { formatDateTime } from '../lib/format'
+import { pageCountOf, scrollToListTop } from '../lib/pagination'
 import { cn } from '../lib/utils'
 import type { Navigate } from './location'
 
@@ -27,11 +28,10 @@ export function PatientView({
   const listRef = useRef<HTMLDivElement>(null)
   if (!data) return <QueryStatus isPending={isPending} error={error} />
 
-  const pageCount = Math.max(1, Math.ceil(data.compositionCount / COMPOSITIONS_PAGE_SIZE))
+  const pageCount = pageCountOf(data.compositionCount, PAGE_SIZE)
   const goToPage = (p: number) => {
     navigate({ view: 'patient', ehrId, templateId, page: p })
-    // The pager is below the list; bring the new page's first row into view.
-    if ((listRef.current?.getBoundingClientRect().top ?? 0) < 0) listRef.current?.scrollIntoView({ block: 'start' })
+    scrollToListTop(listRef.current)
   }
 
   return (
@@ -61,13 +61,7 @@ export function PatientView({
           </div>
         </CardHeader>
         {page > pageCount ? (
-          // A stale or hand-edited ?page= past the end.
-          <div className="px-6 pb-6 text-sm text-muted-foreground">
-            There is no page {page.toLocaleString()}.{' '}
-            <button type="button" className="cursor-pointer underline hover:text-foreground" onClick={() => goToPage(pageCount)}>
-              Go to the last page
-            </button>
-          </div>
+          <PastLastPage page={page} onLastPage={() => goToPage(pageCount)} />
         ) : compositions.data ? (
           <div className={cn('transition-opacity', compositions.isPlaceholderData && 'opacity-60')}>
             <DataTable<CompositionSummary>
@@ -84,7 +78,7 @@ export function PatientView({
             />
             <Pagination
               page={page}
-              pageSize={COMPOSITIONS_PAGE_SIZE}
+              pageSize={PAGE_SIZE}
               total={data.compositionCount}
               onPageChange={goToPage}
               loading={compositions.isPlaceholderData}

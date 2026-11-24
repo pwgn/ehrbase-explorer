@@ -1,7 +1,7 @@
 // AQL-backed queries for the browse views. AQL has no GROUP BY, but EHRbase
 // groups aggregates (COUNT, MAX) by the other selected columns, so counts are
 // computed in the database rather than by fetching every composition.
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import {
   getCanonicalComposition,
   getFlatComposition,
@@ -86,36 +86,72 @@ FROM EHR e CONTAINS COMPOSITION c`,
   }
 }
 
-// All EHRs, or only those with at least one composition of `templateId`.
-async function listPatients(templateId?: string): Promise<PatientSummary[]> {
-  // EHRbase groups by the non-aggregate columns: one row per EHR.
-  const statsQuery = `SELECT e/ehr_id/value, COUNT(c/uid/value), MAX(c/context/start_time/value)
-FROM EHR e CONTAINS COMPOSITION c`
-  const [ehrs, perEhr] = await Promise.all([
-    rows<EhrRow>(`SELECT ${EHR_COLUMNS} FROM EHR e`),
-    templateId
-      ? rows<[string, number, string]>(`${statsQuery} WHERE c/archetype_details/template_id/value = $template_id`, {
-          template_id: templateId,
-        })
-      : rows<[string, number, string]>(statsQuery),
-  ])
+// Rows per page in the paginated lists.
+export const PAGE_SIZE = 50
 
-  const stats = new Map(perEhr.map(([ehrId, count, latest]) => [ehrId, { count, latest }]))
+const pageClause = (page: number) => `LIMIT ${PAGE_SIZE} OFFSET ${(page - 1) * PAGE_SIZE}`
 
-  return ehrs
-    .filter(([ehrId]) => !templateId || stats.has(ehrId))
-    .map(([ehrId, subjectId, namespace, created]) => ({
-      ehrId,
-      subjectId,
-      namespace,
-      created,
-      compositions: stats.get(ehrId)?.count ?? 0,
-      latest: stats.get(ehrId)?.latest ?? null,
-    }))
-    .sort((a, b) => (a.subjectId ?? a.ehrId).localeCompare(b.subjectId ?? b.ehrId))
+// By subject ID; the EHR ID tie-breaker keeps pages stable.
+const PATIENT_ORDER = 'ORDER BY e/ehr_status/subject/external_ref/id/value ASC, e/ehr_id/value ASC'
+
+type EhrStatsRow = [...EhrRow, number, string]
+
+const toPatient = ([ehrId, subjectId, namespace, created]: EhrRow, stats?: { count: number; latest: string }) => ({
+  ehrId,
+  subjectId,
+  namespace,
+  created,
+  compositions: stats?.count ?? 0,
+  latest: stats?.latest ?? null,
+})
+
+export interface PatientPage {
+  total: number
+  patients: PatientSummary[]
 }
 
-export const COMPOSITIONS_PAGE_SIZE = 50
+// One page (1-based) of all EHRs, or of those with at least one composition
+// of `templateId`.
+async function listPatients(templateId: string | undefined, page: number): Promise<PatientPage> {
+  if (templateId) {
+    // Only EHRs with a matching composition, so the counts come with the page.
+    // EHRbase groups the aggregates by the other columns: one row per EHR.
+    const params = { template_id: templateId }
+    const where = 'WHERE c/archetype_details/template_id/value = $template_id'
+    const [total, pageRows] = await Promise.all([
+      rows<[number]>(`SELECT COUNT(DISTINCT e/ehr_id/value) FROM EHR e CONTAINS COMPOSITION c ${where}`, params),
+      rows<EhrStatsRow>(
+        `SELECT ${EHR_COLUMNS}, COUNT(c/uid/value), MAX(c/context/start_time/value)
+FROM EHR e CONTAINS COMPOSITION c ${where}
+${PATIENT_ORDER} ${pageClause(page)}`,
+        params,
+      ),
+    ])
+    return {
+      total: total[0]?.[0] ?? 0,
+      patients: pageRows.map(([ehrId, subjectId, namespace, created, count, latest]) =>
+        toPatient([ehrId, subjectId, namespace, created], { count, latest }),
+      ),
+    }
+  }
+
+  // EHRs without compositions belong in this list too, which a CONTAINS
+  // COMPOSITION query would drop: page the EHRs, then count for that page.
+  const [total, ehrs] = await Promise.all([
+    rows<[number]>('SELECT COUNT(e/ehr_id/value) FROM EHR e'),
+    rows<EhrRow>(`SELECT ${EHR_COLUMNS} FROM EHR e ${PATIENT_ORDER} ${pageClause(page)}`),
+  ])
+  const perEhr =
+    ehrs.length === 0
+      ? []
+      : await rows<[string, number, string]>(
+          `SELECT e/ehr_id/value, COUNT(c/uid/value), MAX(c/context/start_time/value)
+FROM EHR e CONTAINS COMPOSITION c WHERE e/ehr_id/value matches {$ehr_ids}`,
+          { ehr_ids: ehrs.map(([ehrId]) => ehrId) },
+        )
+  const stats = new Map(perEhr.map(([ehrId, count, latest]) => [ehrId, { count, latest }]))
+  return { total: total[0]?.[0] ?? 0, patients: ehrs.map((ehr) => toPatient(ehr, stats.get(ehr[0]))) }
+}
 
 async function getPatient(ehrId: string) {
   const params = { ehr_id: ehrId }
@@ -131,11 +167,9 @@ async function getPatient(ehrId: string) {
 // One page (1-based) of an EHR's compositions, newest first. The uid
 // tie-breaker keeps pages stable when start times are equal.
 async function listCompositions(ehrId: string, page: number): Promise<CompositionSummary[]> {
-  const offset = (page - 1) * COMPOSITIONS_PAGE_SIZE
   const result = await rows<CompositionRow>(
     `SELECT ${COMPOSITION_COLUMNS} FROM EHR e[ehr_id/value=$ehr_id] CONTAINS COMPOSITION c
-ORDER BY c/context/start_time/value DESC, c/uid/value ASC
-LIMIT ${COMPOSITIONS_PAGE_SIZE} OFFSET ${offset}`,
+ORDER BY c/context/start_time/value DESC, c/uid/value ASC ${pageClause(page)}`,
     { ehr_id: ehrId },
   )
   return result.map(toComposition)
@@ -191,8 +225,19 @@ async function listVersions(ehrId: string, uid: string): Promise<CompositionVers
 
 export const useOverview = () => useQuery({ queryKey: ['overview'], queryFn: getOverview })
 
-export const usePatients = (templateId?: string) =>
-  useQuery({ queryKey: ['patients', templateId], queryFn: () => listPatients(templateId) })
+// For paged queries keyed [name, list, page]: keep showing the current page
+// while the next page of the same list loads, but not another list's rows.
+function previousPageOf<T>(list: string | undefined) {
+  return (previous: T | undefined, previousQuery?: { queryKey: readonly unknown[] }) =>
+    previousQuery?.queryKey[1] === list ? previous : undefined
+}
+
+export const usePatients = (templateId: string | undefined, page: number) =>
+  useQuery({
+    queryKey: ['patients', templateId, page],
+    queryFn: () => listPatients(templateId, page),
+    placeholderData: previousPageOf<PatientPage>(templateId),
+  })
 
 export const usePatient = (ehrId: string) =>
   useQuery({ queryKey: ['patient', ehrId], queryFn: () => getPatient(ehrId) })
@@ -201,8 +246,7 @@ export const usePatientCompositions = (ehrId: string, page: number) =>
   useQuery({
     queryKey: ['compositions', ehrId, page],
     queryFn: () => listCompositions(ehrId, page),
-    // Keep showing the current page while the next one loads.
-    placeholderData: keepPreviousData,
+    placeholderData: previousPageOf<CompositionSummary[]>(ehrId),
   })
 
 export const useComposition = (ehrId: string, uid: string | undefined) =>

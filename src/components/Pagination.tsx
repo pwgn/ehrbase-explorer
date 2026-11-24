@@ -1,5 +1,18 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { pageCountOf } from '../lib/pagination'
 import { Button } from './ui/button'
+
+// For a stale or hand-edited ?page= past the end of the list.
+export function PastLastPage({ page, onLastPage }: { page: number; onLastPage: () => void }) {
+  return (
+    <div className="px-6 py-6 text-sm text-muted-foreground">
+      There is no page {page.toLocaleString()}.{' '}
+      <button type="button" className="cursor-pointer underline hover:text-foreground" onClick={onLastPage}>
+        Go to the last page
+      </button>
+    </div>
+  )
+}
 
 // "1–50 of 3,214" with first/previous/next/last buttons. `page` is 1-based.
 export function Pagination({
@@ -15,7 +28,7 @@ export function Pagination({
   onPageChange: (page: number) => void
   loading?: boolean
 }) {
-  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  const pageCount = pageCountOf(total, pageSize)
   if (pageCount <= 1) return null
 
   const first = (page - 1) * pageSize + 1
