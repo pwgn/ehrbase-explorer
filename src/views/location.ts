@@ -5,9 +5,9 @@ import type { NavigateOptions } from '../lib/route'
 export type Location =
   | { view: 'overview' }
   | { view: 'templates' }
-  | { view: 'patients'; templateId?: string }
+  | { view: 'patients'; templateId?: string; page?: number } // 1-based
   | { view: 'fields'; templateId: string; fields: string[] } // selected field keys
-  | { view: 'patient'; ehrId: string; templateId?: string }
+  | { view: 'patient'; ehrId: string; templateId?: string; page?: number } // 1-based compositions page
   | { view: 'composition'; ehrId: string; uid: string; templateId?: string }
 
 export type Navigate = (to: Location, options?: NavigateOptions) => void

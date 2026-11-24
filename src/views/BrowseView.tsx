@@ -19,7 +19,9 @@ export function BrowseView({
     <div className="mx-auto max-w-7xl px-8 py-8">
       {location.view === 'overview' && <OverviewView navigate={navigate} />}
       {location.view === 'templates' && <TemplatesView navigate={navigate} openInAql={openInAql} />}
-      {location.view === 'patients' && <PatientListView templateId={location.templateId} navigate={navigate} />}
+      {location.view === 'patients' && (
+        <PatientListView templateId={location.templateId} page={location.page ?? 1} navigate={navigate} />
+      )}
       {location.view === 'fields' && (
         <FieldExplorerView
           templateId={location.templateId}
@@ -29,7 +31,12 @@ export function BrowseView({
         />
       )}
       {location.view === 'patient' && (
-        <PatientView ehrId={location.ehrId} templateId={location.templateId} navigate={navigate} />
+        <PatientView
+          ehrId={location.ehrId}
+          templateId={location.templateId}
+          page={location.page ?? 1}
+          navigate={navigate}
+        />
       )}
       {location.view === 'composition' && (
         <CompositionView ehrId={location.ehrId} uid={location.uid} templateId={location.templateId} navigate={navigate} />
