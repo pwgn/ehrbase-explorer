@@ -1,7 +1,14 @@
 // AQL-backed queries for the browse views. EHRbase's AQL has no GROUP BY,
 // so counts are aggregated client-side (fine at local-dev scale).
 import { useQuery } from '@tanstack/react-query'
-import { getFlatComposition, getWebTemplate, listTemplates, runAql } from './ehrbase'
+import {
+  getCanonicalComposition,
+  getFlatComposition,
+  getRevisionHistory,
+  getWebTemplate,
+  listTemplates,
+  runAql,
+} from './ehrbase'
 
 export interface TemplateStats {
   templateId: string
@@ -132,17 +139,45 @@ ORDER BY c/context/start_time/value DESC`,
   return { ehrId, subjectId, namespace, created, compositions: compositions.map(toComposition) }
 }
 
+// Read from the composition itself rather than AQL, which only sees latest versions.
 async function getComposition(ehrId: string, uid: string) {
-  const [meta, flat] = await Promise.all([
-    rows<CompositionRow>(
-      `SELECT ${COMPOSITION_COLUMNS} FROM EHR e[ehr_id/value=$ehr_id] CONTAINS COMPOSITION c
-WHERE c/uid/value = $uid`,
-      { ehr_id: ehrId, uid },
-    ),
-    getFlatComposition(ehrId, uid),
-  ])
-  if (meta.length === 0) throw new Error(`Composition ${uid} not found`)
-  return { ...toComposition(meta[0]), flat }
+  const [c, flat] = await Promise.all([getCanonicalComposition(ehrId, uid), getFlatComposition(ehrId, uid)])
+  return {
+    uid: c.uid.value,
+    name: c.name.value,
+    templateId: c.archetype_details.template_id.value,
+    startTime: c.context?.start_time.value ?? '',
+    composer: c.composer.name ?? null,
+    flat,
+  }
+}
+
+export interface CompositionVersion {
+  uid: string
+  version: number
+  committed: string
+  changeType: string
+  committer: string | null
+}
+
+// "<id>::<system>::<n>" → "<id>" and n.
+export const versionedObjectId = (uid: string) => uid.split('::')[0]
+export const versionNumber = (uid: string) => Number(uid.split('::')[2] ?? 1)
+
+async function listVersions(ehrId: string, uid: string): Promise<CompositionVersion[]> {
+  const history = await getRevisionHistory(ehrId, versionedObjectId(uid))
+  return history
+    .map((item) => {
+      const audit = item.audits[0]
+      return {
+        uid: item.version_id.value,
+        version: versionNumber(item.version_id.value),
+        committed: audit?.time_committed.value ?? '',
+        changeType: audit?.change_type.value ?? '',
+        committer: audit?.committer?.name ?? null,
+      }
+    })
+    .sort((a, b) => b.version - a.version)
 }
 
 export const useOverview = () => useQuery({ queryKey: ['overview'], queryFn: getOverview })
@@ -153,8 +188,20 @@ export const usePatients = (templateId?: string) =>
 export const usePatient = (ehrId: string) =>
   useQuery({ queryKey: ['patient', ehrId], queryFn: () => getPatient(ehrId) })
 
-export const useComposition = (ehrId: string, uid: string) =>
-  useQuery({ queryKey: ['composition', ehrId, uid], queryFn: () => getComposition(ehrId, uid) })
+export const useComposition = (ehrId: string, uid: string | undefined) =>
+  useQuery({
+    queryKey: ['composition', ehrId, uid],
+    queryFn: () => getComposition(ehrId, uid!),
+    enabled: !!uid,
+    // A specific version never changes.
+    staleTime: uid?.includes('::') ? Infinity : 0,
+  })
+
+export const useCompositionVersions = (ehrId: string, uid: string) =>
+  useQuery({
+    queryKey: ['versions', ehrId, versionedObjectId(uid)],
+    queryFn: () => listVersions(ehrId, uid),
+  })
 
 export const useWebTemplate = (templateId: string | undefined) =>
   useQuery({

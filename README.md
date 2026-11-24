@@ -44,6 +44,8 @@ docker compose up -d --wait     # EHRbase takes ~30 s to become healthy
 Problem List and Laboratory Test Report, from EHRbase's test data). It then creates
 20 synthetic patients (`SYN-0001`…, namespace `ehrbase-explorer:synthetic`),
 each with 2–4 vital-signs encounters, a problem list and sometimes a lab report.
+The problem lists of `SYN-0001`…`SYN-0004` then get later versions (an updated
+description, and for two of them an added problem), so there's version history to browse.
 The data is deterministic, and reruns skip templates and patients that already
 exist. `PATIENTS=50 ./seed.sh` makes more, and `EHRBASE_URL` points the script elsewhere.
 
@@ -74,7 +76,7 @@ npm run build
 npm run lint
 ```
 
-`npm run dev:box` binds `0.0.0.0:9001` instead. Use it only behind the dev
+`npm run dev:box` binds `0.0.0.0:9001` instead and polls for file changes. Use it only behind the dev
 box's proxy (https://ehrbase-explorer.dev.lokalhost.one, the one host Vite
 accepts; see `allowedHosts` in `vite.config.ts`), because of the note above.
 
@@ -110,7 +112,9 @@ docker exec -u dev proj-ehrbase-explorer bash -c '
 
 ## Updating
 
-**Code changes** (`src/`, `index.css`) hot-reload; nothing to restart.
+**Code changes** (`src/`, `index.css`) hot-reload; nothing to restart. On the dev
+box, `dev:box` polls for changes (`VITE_POLL=1`), because edits made from the
+host through the bind mount don't send file-change events into the gVisor sandbox.
 
 **Dependencies:** after `npm install` or a `package.json` change, restart Vite
 (see above or stop and rerun `npm run dev`). It pre-bundles dependencies at

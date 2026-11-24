@@ -70,8 +70,40 @@ export function getWebTemplate(templateId: string) {
 // FLAT format: path → value, e.g. ".../body_weight/any_event:0/weight|magnitude": 92.4
 export type FlatComposition = Record<string, string | number | boolean>
 
+// `uid` may be a versioned object id (→ latest version) or a version uid
+// ("<id>::<system>::<n>", → that version).
 export function getFlatComposition(ehrId: string, uid: string) {
   return request<FlatComposition>(
     `/ehr/${encodeURIComponent(ehrId)}/composition/${encodeURIComponent(uid)}?format=FLAT`,
   )
+}
+
+// The canonical JSON fields the explorer reads (the rest is ignored).
+export interface CanonicalComposition {
+  name: { value: string }
+  uid: { value: string }
+  archetype_details: { template_id: { value: string } }
+  composer: { name?: string }
+  context?: { start_time: { value: string } }
+}
+
+export function getCanonicalComposition(ehrId: string, uid: string) {
+  return request<CanonicalComposition>(`/ehr/${encodeURIComponent(ehrId)}/composition/${encodeURIComponent(uid)}`)
+}
+
+export interface RevisionHistoryItem {
+  version_id: { value: string }
+  audits: {
+    time_committed: { value: string }
+    change_type: { value: string }
+    committer?: { name?: string }
+  }[]
+}
+
+export async function getRevisionHistory(ehrId: string, versionedObjectId: string) {
+  const history = await request<RevisionHistoryItem[] | { items: RevisionHistoryItem[] }>(
+    `/ehr/${encodeURIComponent(ehrId)}/versioned_composition/${encodeURIComponent(versionedObjectId)}/revision_history`,
+  )
+  // The spec's REVISION_HISTORY wraps the items; EHRbase returns the bare array.
+  return Array.isArray(history) ? history : history.items
 }

@@ -31,7 +31,9 @@ export function BrowseView({
       {location.view === 'patient' && (
         <PatientView ehrId={location.ehrId} templateId={location.templateId} navigate={navigate} />
       )}
-      {location.view === 'composition' && <CompositionView ehrId={location.ehrId} uid={location.uid} />}
+      {location.view === 'composition' && (
+        <CompositionView ehrId={location.ehrId} uid={location.uid} templateId={location.templateId} navigate={navigate} />
+      )}
     </div>
   )
 }

@@ -263,3 +263,59 @@ done
 
 echo
 echo "Done: $created patients created ($compositions compositions), $skipped already present."
+
+# --- Revisions -----------------------------------------------------------------
+# Some problem lists get later versions, so there is version history to browse.
+# Each one is brought up to a target version, so reruns don't add more.
+REVISIONS=("SYN-0001|3" "SYN-0002|2" "SYN-0003|3" "SYN-0004|2")
+
+aql() { # QUERY PARAMS_JSON → rows as JSON
+  api POST /query/aql -H 'Content-Type: application/json' -H 'Accept: application/json' \
+    --data-binary "$(jq -n --arg q "$1" --argjson p "$2" '{q: $q, query_parameters: $p}')" | jq -c '.rows'
+}
+
+# put_flat EHR_ID TEMPLATE_ID VERSION_UID JSON → new version of that composition
+put_flat() {
+  api PUT "/ehr/$1/composition/${3%%::*}?templateId=$(uri "$2")&format=FLAT" \
+    -H 'Content-Type: application/json' -H 'Accept: application/json' -H 'Prefer: return=minimal' \
+    -H "If-Match: $3" --data-binary "$4" >/dev/null
+}
+
+# revise_problem_list FLAT VERSION → the FLAT content of the next version.
+# Version 2 updates the first problem's description; version 3 adds a problem.
+revise_problem_list() {
+  local p=problem_list/problems_and_issues/problem_diagnosis now
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq --arg p "$p" --arg now "$now" --argjson to "$(($2 + 1))" '
+    with_entries(select(.key | endswith("/_uid") | not))
+    | (if $to == 2 then
+        .[$p + ":0/clinical_description"] += " Reviewed at follow-up; plan unchanged."
+      else
+        ([keys[] | capture("problem_diagnosis:(?<i>[0-9]+)/") | .i | tonumber] | max + 1) as $i
+        | .[$p + ":\($i)/problem_diagnosis_name"] = "Vitamin D deficiency"
+        | .[$p + ":\($i)/clinical_description"] = "Low level on screening; supplement started."
+        | .[$p + ":\($i)/date_time_of_onset"] = ($now | .[0:10])
+        | .[$p + ":\($i)/last_updated"] = $now
+      end)
+    | .[$p + ":0/last_updated"] = $now' <<<"$1"
+}
+
+revised=0
+for r in "${REVISIONS[@]}"; do
+  IFS='|' read -r subject target <<<"$r"
+  ehr=$(api GET "/ehr?subject_id=$(uri "$subject")&subject_namespace=$(uri "$NAMESPACE")" \
+    -H 'Accept: application/json' 2>/dev/null | jq -r '.ehr_id.value // empty' || true)
+  [[ -z $ehr ]] && continue
+  uid=$(aql "SELECT c/uid/value FROM EHR e[ehr_id/value=\$ehr] CONTAINS COMPOSITION c
+WHERE c/archetype_details/template_id/value = \$template" \
+    "$(jq -n --arg e "$ehr" --arg t "$PROBLEMS" '{ehr: $e, template: $t}')" | jq -r '.[0][0] // empty')
+  [[ -z $uid ]] && continue
+  while ((${uid##*::} < target)); do
+    flat=$(api GET "/ehr/$ehr/composition/$uid?format=FLAT" -H 'Accept: application/json')
+    put_flat "$ehr" "$PROBLEMS" "$uid" "$(revise_problem_list "$flat" "${uid##*::}")"
+    uid="${uid%::*}::$((${uid##*::} + 1))"
+    echo "revision  $subject problem list → version ${uid##*::}"
+    revised=$((revised + 1))
+  done
+done
+echo "Revisions: $revised new composition versions."
