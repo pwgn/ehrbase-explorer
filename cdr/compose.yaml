@@ -1,0 +1,54 @@
+# Local EHRbase CDR for the explorer. Secrets come from cdr/.env
+# (copy .env.example). Data lives in ./data/<service>.
+#
+#   docker compose up -d --wait && ./seed.sh
+name: ehrbase-explorer-cdr
+
+services:
+  postgres:
+    image: ehrbase/ehrbase-v2-postgres:16.2
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      # Read by the image's init script, which creates the ehrbase database and roles.
+      EHRBASE_USER_ADMIN: ehrbase
+      EHRBASE_PASSWORD_ADMIN: ${EHRBASE_DB_ADMIN_PASSWORD:?set in .env}
+      EHRBASE_USER: ehrbase_restricted
+      EHRBASE_PASSWORD: ${EHRBASE_DB_PASSWORD:?set in .env}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ehrbase"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    labels:
+      docker-volume-backup.stop-during-backup: "true"
+
+  ehrbase:
+    image: ehrbase/ehrbase:2.24.0
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/ehrbase
+      DB_USER_ADMIN: ehrbase
+      DB_PASS_ADMIN: ${EHRBASE_DB_ADMIN_PASSWORD:?set in .env}
+      DB_USER: ehrbase_restricted
+      DB_PASS: ${EHRBASE_DB_PASSWORD:?set in .env}
+      SERVER_NODENAME: local.ehrbase.org
+      # No auth: local development only. Published on loopback below.
+      SECURITY_AUTHTYPE: NONE
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE: health
+      MANAGEMENT_ENDPOINT_HEALTH_ENABLED: "true"
+      MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+    ports:
+      - "127.0.0.1:8081:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ehrbase/management/health/readiness | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      start_period: 120s
+      retries: 30
