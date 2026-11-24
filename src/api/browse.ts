@@ -1,6 +1,6 @@
 // AQL-backed queries for the browse views. EHRbase's AQL has no GROUP BY,
 // so counts are aggregated client-side (fine at local-dev scale).
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import {
   getCanonicalComposition,
   getFlatComposition,
@@ -125,19 +125,30 @@ WHERE c/archetype_details/template_id/value = $template_id`,
     .sort((a, b) => (a.subjectId ?? a.ehrId).localeCompare(b.subjectId ?? b.ehrId))
 }
 
+export const COMPOSITIONS_PAGE_SIZE = 50
+
 async function getPatient(ehrId: string) {
   const params = { ehr_id: ehrId }
-  const [ehrs, compositions] = await Promise.all([
+  const [ehrs, counts] = await Promise.all([
     rows<EhrRow>(`SELECT ${EHR_COLUMNS} FROM EHR e[ehr_id/value=$ehr_id]`, params),
-    rows<CompositionRow>(
-      `SELECT ${COMPOSITION_COLUMNS} FROM EHR e[ehr_id/value=$ehr_id] CONTAINS COMPOSITION c
-ORDER BY c/context/start_time/value DESC`,
-      params,
-    ),
+    rows<[number]>('SELECT COUNT(c/uid/value) FROM EHR e[ehr_id/value=$ehr_id] CONTAINS COMPOSITION c', params),
   ])
   if (ehrs.length === 0) throw new Error(`EHR ${ehrId} not found`)
   const [, subjectId, namespace, created] = ehrs[0]
-  return { ehrId, subjectId, namespace, created, compositions: compositions.map(toComposition) }
+  return { ehrId, subjectId, namespace, created, compositionCount: counts[0]?.[0] ?? 0 }
+}
+
+// One page (1-based) of an EHR's compositions, newest first. The uid
+// tie-breaker keeps pages stable when start times are equal.
+async function listCompositions(ehrId: string, page: number): Promise<CompositionSummary[]> {
+  const offset = (page - 1) * COMPOSITIONS_PAGE_SIZE
+  const result = await rows<CompositionRow>(
+    `SELECT ${COMPOSITION_COLUMNS} FROM EHR e[ehr_id/value=$ehr_id] CONTAINS COMPOSITION c
+ORDER BY c/context/start_time/value DESC, c/uid/value ASC
+LIMIT ${COMPOSITIONS_PAGE_SIZE} OFFSET ${offset}`,
+    { ehr_id: ehrId },
+  )
+  return result.map(toComposition)
 }
 
 // Read from the composition itself rather than AQL, which only sees latest versions.
@@ -195,6 +206,14 @@ export const usePatients = (templateId?: string) =>
 
 export const usePatient = (ehrId: string) =>
   useQuery({ queryKey: ['patient', ehrId], queryFn: () => getPatient(ehrId) })
+
+export const usePatientCompositions = (ehrId: string, page: number) =>
+  useQuery({
+    queryKey: ['compositions', ehrId, page],
+    queryFn: () => listCompositions(ehrId, page),
+    // Keep showing the current page while the next one loads.
+    placeholderData: keepPreviousData,
+  })
 
 export const useComposition = (ehrId: string, uid: string | undefined) =>
   useQuery({

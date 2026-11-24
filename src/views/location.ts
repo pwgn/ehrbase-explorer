@@ -7,7 +7,7 @@ export type Location =
   | { view: 'templates' }
   | { view: 'patients'; templateId?: string }
   | { view: 'fields'; templateId: string; fields: string[] } // selected field keys
-  | { view: 'patient'; ehrId: string; templateId?: string }
+  | { view: 'patient'; ehrId: string; templateId?: string; page?: number } // 1-based compositions page
   | { view: 'composition'; ehrId: string; uid: string; templateId?: string }
 
 export type Navigate = (to: Location, options?: NavigateOptions) => void
